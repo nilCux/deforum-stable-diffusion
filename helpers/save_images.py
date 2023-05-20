@@ -7,9 +7,13 @@ import time
 
 
 def get_output_folder(output_path, batch_folder):
-    out_path = os.path.join(output_path,time.strftime('%Y-%m'))
     if batch_folder != "":
-        out_path = os.path.join(out_path, batch_folder)
+        out_path = os.path.join(output_path, batch_folder)
+    else:
+        out_path = os.path.join(output_path,time.strftime('%Y-%m'))
+    if os.path.exists(out_path):
+        print(f"WARNING: {out_path} already exists, deleting it.")
+        os.rmdir(out_path)
     os.makedirs(out_path, exist_ok=True)
     return out_path
 
