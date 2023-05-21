@@ -34,6 +34,8 @@ The format of the prompts file is as follows:
     ...
     ]
 
+The format of the features file is as follows:
+
 Original file is located at
     https://colab.research.google.com/drive/1Mte87ekwakUbGNvPDut7SCmR3H7-qqr8
 
@@ -45,6 +47,7 @@ Original file is located at
 
 import argparse
 import json
+import math
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Print input and output file paths")
@@ -62,7 +65,20 @@ if __name__ == "__main__":
     with open(m2v_args.prompts_file_path, 'r') as file:
         input_animation_prompts_json = json.load(file)
         for animation_prompt in input_animation_prompts_json:
-            animation_prompts[animation_prompt['end']*int(m2v_args.fps)] = animation_prompt['prompt']
+            animation_prompts[animation_prompt['start']*int(m2v_args.fps)] = animation_prompt['prompt']
+    
+        input_max_frame = input_animation_prompts_json[-1]['end']*int(m2v_args.fps)
+        input_max_frame = math.ceil(input_max_frame/7)*7+1
+    
+    # Open the file and read the JSON data
+    with open(m2v_args.features_file_path, 'r') as f:
+        data = json.load(f)
+
+    # Build the strength_schedule string
+    input_strength_schedule = ', '.join([f'{item["frame"]}:({item["strength_schedule"]})' for item in data])
+
+    # Build the noise_schedule string
+    input_noise_schedule = ', '.join([f'{item["frame"]}:({item["noise_schedule"]})' for item in data])
 
     
     # -*- coding: utf-8 -*-
@@ -169,8 +185,8 @@ if __name__ == "__main__":
     def DeforumAnimArgs():
 
         #@markdown ####**Animation:**
-        animation_mode = 'Interpolation' #@param ['None', '2D', '3D', 'Video Input', 'Interpolation'] {type:'string'}
-        max_frames = 300 #@param {type:"number"}
+        animation_mode = '3D' #@param ['None', '2D', '3D', 'Video Input', 'Interpolation'] {type:'string'}
+        max_frames = input_max_frame #@param {type:"number"}
         border = 'replicate' #@param ['wrap', 'replicate'] {type:'string'}
 
         #@markdown ####**Motion Parameters:**
@@ -187,8 +203,8 @@ if __name__ == "__main__":
         perspective_flip_phi = "0:(t%15)"#@param {type:"string"}
         perspective_flip_gamma = "0:(0)"#@param {type:"string"}
         perspective_flip_fv = "0:(53)"#@param {type:"string"}
-        noise_schedule = "0: (0.80)"#@param {type:"string"}
-        strength_schedule = "0: (0.08)"#@param {type:"string"}
+        noise_schedule = input_noise_schedule#@param {type:"string"}
+        strength_schedule = input_strength_schedule#@param {type:"string"}
         contrast_schedule = "0: (1.0)"#@param {type:"string"}
         hybrid_video_comp_alpha_schedule = "0:(1)" #@param {type:"string"}
         hybrid_video_comp_mask_blend_alpha_schedule = "0:(0.5)" #@param {type:"string"}
@@ -453,7 +469,7 @@ if __name__ == "__main__":
         # image_path = m2v_args.output_folder_path+m2v_args.patch_name+'_%05d.png'
         mp4_path = m2v_args.output_folder_path+m2v_args.patch_name+'.mp4'
         cmd = [
-            './ffmpeg-5.1.1-amd64-static/ffmpeg',
+            'ffmpeg',
             '-y',
             '-vcodec', bitdepth_extension,
             '-r', str(fps),

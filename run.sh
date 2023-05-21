@@ -9,4 +9,6 @@ fi
 #     patch_name: subfolder name for the output repository
 #     fps: FPS for the video to generate
 source /home2020/home/math/lwerey/V7_DSD/env/bin/activate
+# include ffmpeg in the path
+export /home2020/home/math/lwerey/V7_DSD/ffmpeg-5.1.1-amd64-static/
 python /home2020/home/math/lwerey/V7_DSD/deforum_stable_diffusion_v07.py $1 $2 $3 $4 $5
