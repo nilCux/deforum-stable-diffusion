@@ -71,6 +71,18 @@ if __name__ == "__main__":
 
     
     print(animation_prompts)
+
+    # Open the file and read the JSON data
+    with open(m2v_args.features_file_path, 'r') as f:
+        data = json.load(f)
+
+    # Build the strength_schedule string
+    strength_schedule = ', '.join([f'{item["frame"]}:({item["strength_schedule"]})' for item in data])
+    print('strength_schedule:', strength_schedule)
+
+    # Build the noise_schedule string
+    noise_schedule = ', '.join([f'{item["frame"]}:({item["noise_schedule"]})' for item in data])
+    print('noise_schedule:', noise_schedule)
     # -*- coding: utf-8 -*-
 
 
@@ -194,8 +206,10 @@ if __name__ == "__main__":
         perspective_flip_gamma = "0:(0)"#@param {type:"string"}
         perspective_flip_fv = "0:(53)"#@param {type:"string"}
         noise_schedule = "0: (0.80)"#@param {type:"string"}
-        strength_schedule = "0: (0.08)"#@param {type:"string"}
-        contrast_schedule = "0: (1.0)"#@param {type:"string"}
+        if not "strength_schedule" in globals():
+            strength_schedule = "0: (0.08)"#@param {type:"string"}
+        if not "contrast_schedule" in globals():
+            contrast_schedule = "0: (1.0)"#@param {type:"string"}
         hybrid_video_comp_alpha_schedule = "0:(1)" #@param {type:"string"}
         hybrid_video_comp_mask_blend_alpha_schedule = "0:(0.5)" #@param {type:"string"}
         hybrid_video_comp_mask_contrast_schedule = "0:(1)" #@param {type:"string"}
@@ -211,7 +225,7 @@ if __name__ == "__main__":
         #@markdown ####**Coherence:**
         color_coherence = 'Match Frame 0 LAB' #@param ['None', 'Match Frame 0 HSV', 'Match Frame 0 LAB', 'Match Frame 0 RGB', 'Video Input'] {type:'string'}
         color_coherence_video_every_N_frames = 1 #@param {type:"integer"}
-        diffusion_cadence = '7' #@param ['1','2','3','4','5','6','7','8'] {type:'string'}
+        diffusion_cadence = '1' #@param ['1','2','3','4','5','6','7','8'] {type:'string'}
 
         #@markdown ####**3D Depth Warping:**
         use_depth_warping = True #@param {type:"boolean"}
