@@ -77,12 +77,12 @@ if __name__ == "__main__":
         data = json.load(f)
 
     # Build the strength_schedule string
-    strength_schedule = ', '.join([f'{item["frame"]}:({item["strength_schedule"]})' for item in data])
-    print('strength_schedule:', strength_schedule)
+    input_strength_schedule = ', '.join([f'{item["frame"]}:({item["strength_schedule"]})' for item in data])
+    print('strength_schedule:', input_strength_schedule)
 
     # Build the noise_schedule string
-    noise_schedule = ', '.join([f'{item["frame"]}:({item["noise_schedule"]})' for item in data])
-    print('noise_schedule:', noise_schedule)
+    input_noise_schedule = ', '.join([f'{item["frame"]}:({item["noise_schedule"]})' for item in data])
+    print('noise_schedule:', input_noise_schedule)
     # -*- coding: utf-8 -*-
 
 
@@ -205,11 +205,16 @@ if __name__ == "__main__":
         perspective_flip_phi = "0:(t%15)"#@param {type:"string"}
         perspective_flip_gamma = "0:(0)"#@param {type:"string"}
         perspective_flip_fv = "0:(53)"#@param {type:"string"}
-        noise_schedule = "0: (0.80)"#@param {type:"string"}
-        if not "strength_schedule" in globals():
+        strength_schedule = input_strength_schedule
+        noise_schedule = input_noise_schedule
+        if not "input_strength_schedule" in globals():
             strength_schedule = "0: (0.08)"#@param {type:"string"}
-        if not "contrast_schedule" in globals():
-            contrast_schedule = "0: (1.0)"#@param {type:"string"}
+        if not "input_noise_schedule" in globals():
+            noise_schedule = "0: (0.80)"#@param {type:"string"}
+        
+        print("Applying strength: "+strength_schedule)
+        print("Applying noise: "+noise_schedule)
+        contrast_schedule = "0: (1.0)"#@param {type:"string"}
         hybrid_video_comp_alpha_schedule = "0:(1)" #@param {type:"string"}
         hybrid_video_comp_mask_blend_alpha_schedule = "0:(0.5)" #@param {type:"string"}
         hybrid_video_comp_mask_contrast_schedule = "0:(1)" #@param {type:"string"}
