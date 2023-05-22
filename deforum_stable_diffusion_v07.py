@@ -63,7 +63,7 @@ if __name__ == "__main__":
     with open(m2v_args.prompts_file_path, 'r') as file:
         input_animation_prompts_json = json.load(file)
         for animation_prompt in input_animation_prompts_json:
-            animation_prompts[animation_prompt['start']*int(m2v_args.fps)] = animation_prompt['prompt']
+            animation_prompts[int(animation_prompt['start']*int(m2v_args.fps))] = animation_prompt['prompt']
         input_max_frame = input_animation_prompts_json[-1]['end']*int(m2v_args.fps)
         input_max_frame = math.ceil(input_max_frame/7)*7+1
     
@@ -208,9 +208,9 @@ if __name__ == "__main__":
         strength_schedule = input_strength_schedule
         noise_schedule = input_noise_schedule
         if not "input_strength_schedule" in globals():
-            strength_schedule = "0: (0.08)"#@param {type:"string"}
-        if not "input_noise_schedule" in globals():
-            noise_schedule = "0: (0.80)"#@param {type:"string"}
+            strength_schedule = "0: (0.8)"#@param {type:"string"}
+        #if not "input_noise_schedule" in globals():
+        noise_schedule = "0: (0.065)"#@param {type:"string"}
         
         print("Applying strength: "+strength_schedule)
         print("Applying noise: "+noise_schedule)
@@ -263,7 +263,7 @@ if __name__ == "__main__":
         hybrid_video_use_video_as_mse_image = False #@param {type:"boolean"}
 
         #@markdown ####**Interpolation:**
-        interpolate_key_frames = False #@param {type:"boolean"}
+        interpolate_key_frames = True #@param {type:"boolean"}
         interpolate_x_frames = 0 #@param {type:"number"}
         
         #@markdown ####**Resume Animation:**
