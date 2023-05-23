@@ -1,47 +1,47 @@
-"""Deforum_Stable_Diffusion_v07.ipynb
-
-We are using this script as an adapter to run Stable Diffusion. In this notebook, we will be using the following parameters:
-    prompts_file_path: Path to the prompts file
-    features_file_path: Path to the features file
-    output_folder_path: Path to the output folder
-    patch_name: subfolder name for the output repository
-    fps: FPS for the video to generate
-
-    
-As a result, we will be generating a video with the following name:
-    output_folder_path/patch_name.mp4
-
-The intermediate image files will be stored in the following folder:
-    output_folder_path/patch_name
-
-
-The format of the prompts file is as follows:
-    [
-    {
-        "caption": "A god is creating his religion",
-        "start": 0,
-        "end": 11,
-        "duration": 11,
-        "prompt": "promptA god is creating his religion"
-    },
-    {
-        "caption": "Une religion n'est pas cr\u00e9e par un dieu mais par des gens qui le croient",
-        "start": 11,
-        "end": 20,
-        "duration": 9,
-        "prompt": "promptUne religion n'est pas cr\u00e9e par un dieu mais par des gens qui le croient"
-    },
-    ...
-    ]
-
-Original file is located at
-    https://colab.research.google.com/drive/1Mte87ekwakUbGNvPDut7SCmR3H7-qqr8
-
-# Deforum Stable Diffusion v0.7
-[Stable Diffusion](https://github.com/CompVis/stable-diffusion) by Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, Björn Ommer and the [Stability.ai](https://stability.ai/) Team. [K Diffusion](https://github.com/crowsonkb/k-diffusion) by [Katherine Crowson](https://twitter.com/RiversHaveWings). Notebook by [deforum](https://discord.gg/upmXXsrwZc)
-
-[Quick Guide](https://docs.google.com/document/d/1RrQv7FntzOuLg4ohjRZPVL7iptIyBhwwbcEYEW2OfcI/edit?usp=sharing) to Deforum v0.7
-"""
+# """Deforum_Stable_Diffusion_v07.ipynb
+# 
+# We are using this script as an adapter to run Stable Diffusion. In this notebook, we will be using the following parameters:
+#     prompts_file_path: Path to the prompts file
+#     features_file_path: Path to the features file
+#     output_folder_path: Path to the output folder
+#     patch_name: subfolder name for the output repository
+#     fps: FPS for the video to generate
+# 
+#     
+# As a result, we will be generating a video with the following name:
+#     output_folder_path/patch_name.mp4
+# 
+# The intermediate image files will be stored in the following folder:
+#     output_folder_path/patch_name
+# 
+# 
+# The format of the prompts file is as follows:
+#     [
+#     {
+#         "caption": "A god is creating his religion",
+#         "start": 0,
+#         "end": 11,
+#         "duration": 11,
+#         "prompt": "promptA god is creating his religion"
+#     },
+#     {
+#         "caption": "Une religion n'est pas cr\u00e9e par un dieu mais par des gens qui le croient",
+#         "start": 11,
+#         "end": 20,
+#         "duration": 9,
+#         "prompt": "promptUne religion n'est pas cr\u00e9e par un dieu mais par des gens qui le croient"
+#     },
+#     ...
+#     ]
+# 
+# Original file is located at
+#     https://colab.research.google.com/drive/1Mte87ekwakUbGNvPDut7SCmR3H7-qqr8
+# 
+# # Deforum Stable Diffusion v0.7
+# [Stable Diffusion](https://github.com/CompVis/stable-diffusion) by Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, Björn Ommer and the [Stability.ai](https://stability.ai/) Team. [K Diffusion](https://github.com/crowsonkb/k-diffusion) by [Katherine Crowson](https://twitter.com/RiversHaveWings). Notebook by [deforum](https://discord.gg/upmXXsrwZc)
+# 
+# [Quick Guide](https://docs.google.com/document/d/1RrQv7FntzOuLg4ohjRZPVL7iptIyBhwwbcEYEW2OfcI/edit?usp=sharing) to Deforum v0.7
+# """
 
 import argparse
 import json
