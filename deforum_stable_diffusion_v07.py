@@ -37,7 +37,7 @@ The format of the prompts file is as follows:
 Original file is located at
     https://colab.research.google.com/drive/1Mte87ekwakUbGNvPDut7SCmR3H7-qqr8
 
-# **Deforum Stable Diffusion v0.7**
+# Deforum Stable Diffusion v0.7
 [Stable Diffusion](https://github.com/CompVis/stable-diffusion) by Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, Björn Ommer and the [Stability.ai](https://stability.ai/) Team. [K Diffusion](https://github.com/crowsonkb/k-diffusion) by [Katherine Crowson](https://twitter.com/RiversHaveWings). Notebook by [deforum](https://discord.gg/upmXXsrwZc)
 
 [Quick Guide](https://docs.google.com/document/d/1RrQv7FntzOuLg4ohjRZPVL7iptIyBhwwbcEYEW2OfcI/edit?usp=sharing) to Deforum v0.7
@@ -47,24 +47,336 @@ import argparse
 import json
 import math
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Print input and output file paths")
-    parser.add_argument("prompts_file_path", nargs='?', default="/home2020/home/math/lwerey/TMP/prompts.json", help="Path to the prompts file")
-    parser.add_argument("features_file_path", nargs='?', help="Path to the features file")
-    parser.add_argument("output_folder_path", nargs='?', default="/home2020/home/math/lwerey/TMP/stable_diffusion", help="Path to the features file")
-    parser.add_argument("patch_name", nargs='?', default="M2V", help="subfolder name for the output repository")
-    parser.add_argument("fps", nargs='?', default="10", help="FPS for the video to generate")
+import subprocess, time, gc, os, sys
+
+import torch
+import random
+import clip
+from IPython import display
+from types import SimpleNamespace
+from helpers.save_images import get_output_folder
+from helpers.settings import load_args
+from helpers.render import render_animation, render_input_video, render_image_batch, render_interpolation
+from helpers.model_load import make_linear_decode, load_model, get_model_output_paths
+from helpers.aesthetics import load_aesthetics_model
+
+def setup_environment():
+    """
+    This function sets up the environment for Stable Diffusion.
+    """
+    start_time = time.time()
+    print_subprocess = False
+    use_xformers_for_colab = True
+    reconfigure_environment = True #@param {type:"boolean"}
+
+    try:
+        ipy = get_ipython()
+    except:
+        ipy = 'could not get_ipython'
+    if reconfigure_environment:
+        print("..setting up environment")
+
+        # weird hack
+        #import torch
+        
+        all_process = [
+            ['pip', 'install', 'omegaconf', 'einops==0.4.1', 'pytorch-lightning==1.7.7', 'torchmetrics', 'transformers', 'safetensors', 'kornia'],
+            ['git', 'clone', 'https://github.com/deforum-art/deforum-stable-diffusion'],
+            ['pip', 'install', 'accelerate', 'ftfy', 'jsonmerge', 'matplotlib', 'resize-right', 'timm', 'torchdiffeq','scikit-learn','torchsde','open-clip-torch','numpngw'],
+        ]
+        for process in all_process:
+            running = subprocess.run(process,stdout=subprocess.PIPE).stdout.decode('utf-8')
+            if print_subprocess:
+                print(running)
+        with open('deforum-stable-diffusion/src/k_diffusion/__init__.py', 'w') as f:
+            f.write('')
+        sys.path.extend([
+            'deforum-stable-diffusion/',
+            'deforum-stable-diffusion/src',
+        ])
+        if use_xformers_for_colab:
+
+            print("..installing triton and xformers")
+
+            all_process = [['pip', 'install', 'triton==2.0.0.dev20221202', 'xformers==0.0.16']]
+            for process in all_process:
+                running = subprocess.run(process,stdout=subprocess.PIPE).stdout.decode('utf-8')
+                if print_subprocess:
+                    print(running)
+    else:
+        sys.path.extend([
+            'deforum-stable-diffusion/',
+            'deforum-stable-diffusion/src',
+        ])
+    end_time = time.time()
+    print(f"..environment set up in {end_time-start_time:.0f} seconds")
+    return
 
 
-    m2v_args = parser.parse_args()
+def Root():
+    """
+    This function sets up the environment for Stable Diffusion.
+    """
+    models_path = "./models" #@param {type:"string"}
+    configs_path = "./deforum-stable-diffusion/configs/" #@param {type:"string"}
+    output_path = "./outputs" #@param {type:"string"}
+    mount_google_drive = False #@param {type:"boolean"}
+    models_path_gdrive = "/content/drive/MyDrive/AI/models" #@param {type:"string"}
+    output_path_gdrive = "/content/drive/MyDrive/AI/StableDiffusion" #@param {type:"string"}
 
+    # Model Setup
+    map_location = "cuda" #@param ["cpu", "cuda"]
+    model_config = "v2-inference-v.yaml" #@param ["custom","v2-inference.yaml","v2-inference-v.yaml","v1-inference.yaml"]
+    model_checkpoint =  "v2-1_768-ema-pruned.ckpt" #@param ["custom","v2-1_768-ema-pruned.ckpt","v2-1_512-ema-pruned.ckpt","768-v-ema.ckpt","512-base-ema.ckpt","Protogen_V2.2.ckpt","v1-5-pruned.ckpt","v1-5-pruned-emaonly.ckpt","sd-v1-4-full-ema.ckpt","sd-v1-4.ckpt","sd-v1-3-full-ema.ckpt","sd-v1-3.ckpt","sd-v1-2-full-ema.ckpt","sd-v1-2.ckpt","sd-v1-1-full-ema.ckpt","sd-v1-1.ckpt", "robo-diffusion-v1.ckpt","wd-v1-3-float16.ckpt"]
+    custom_config_path = "" #@param {type:"string"}
+    custom_checkpoint_path = "" #@param {type:"string"}
+    return locals()
+
+
+def DeforumAnimArgs(input_max_frame, input_rotation3d_y, input_strength_schedule):
+    """
+    This function sets up the arguments for Stable Diffusion.
+
+    :param input_max_frame: The maximum number of frames to render.
+    :type input_max_frame: int
+    :param input_rotation3d_y: The rotation of the 3D model.
+    :type input_rotation3d_y: float
+    :param input_strength_schedule: The strength schedule for the diffusion.
+    :type input_strength_schedule: str
+    :return: The arguments for Stable Diffusion.
+    """
+    # Animation:
+    animation_mode = '3D' #@param ['None', '2D', '3D', 'Video Input', 'Interpolation'] {type:'string'}
+    max_frames = input_max_frame #@param {type:"number"}
+    border = 'replicate' #@param ['wrap', 'replicate'] {type:'string'}
+
+    # Motion Parameters:
+    angle = "0:(0)"#@param {type:"string"}
+    zoom = "0:(1)"#@param {type:"string"}
+    translation_x = "0:(0)"#@param {type:"string"}
+    translation_y = "0:(0)"#@param {type:"string"}
+    translation_z = "0:(0)"#@param {type:"string"}
+    rotation_3d_x = "0:(0)"#@param {type:"string"}
+    # rotation_3d_y = "0:(0)"#@param {type:"string"}
+    rotation_3d_y = input_rotation3d_y
+    rotation_3d_z = "0:(0)"#@param {type:"string"}
+    flip_2d_perspective = False #@param {type:"boolean"}
+    perspective_flip_theta = "0:(0)"#@param {type:"string"}
+    perspective_flip_phi = "0:(t%15)"#@param {type:"string"}
+    perspective_flip_gamma = "0:(0)"#@param {type:"string"}
+    perspective_flip_fv = "0:(53)"#@param {type:"string"}
+    strength_schedule = input_strength_schedule
+
+    if not "input_strength_schedule" in globals():
+        strength_schedule = "0: (0.8)"#@param {type:"string"}
+    #if not "input_noise_schedule" in globals():
+    noise_schedule = "0: (0.065)"#@param {type:"string"}
+    
+    print("Applying strength: "+strength_schedule)
+    print("Applying noise: "+noise_schedule)
+    contrast_schedule = "0: (1.0)"#@param {type:"string"}
+    hybrid_video_comp_alpha_schedule = "0:(1)" #@param {type:"string"}
+    hybrid_video_comp_mask_blend_alpha_schedule = "0:(0.5)" #@param {type:"string"}
+    hybrid_video_comp_mask_contrast_schedule = "0:(1)" #@param {type:"string"}
+    hybrid_video_comp_mask_auto_contrast_cutoff_high_schedule =  "0:(100)" #@param {type:"string"}
+    hybrid_video_comp_mask_auto_contrast_cutoff_low_schedule =  "0:(0)" #@param {type:"string"}
+
+    # ####**Unsharp mask (anti-blur) Parameters:**
+    kernel_schedule = "0: (5)"#@param {type:"string"}
+    sigma_schedule = "0: (1.0)"#@param {type:"string"}
+    amount_schedule = "0: (0.2)"#@param {type:"string"}
+    threshold_schedule = "0: (0.0)"#@param {type:"string"}
+
+    # ####**Coherence:**
+    color_coherence = 'Match Frame 0 LAB' #@param ['None', 'Match Frame 0 HSV', 'Match Frame 0 LAB', 'Match Frame 0 RGB', 'Video Input'] {type:'string'}
+    color_coherence_video_every_N_frames = 1 #@param {type:"integer"}
+    diffusion_cadence = '1' #@param ['1','2','3','4','5','6','7','8'] {type:'string'}
+
+    # ####**3D Depth Warping:**
+    use_depth_warping = True #@param {type:"boolean"}
+    midas_weight = 0.3#@param {type:"number"}
+    near_plane = 200
+    far_plane = 10000
+    fov = 40#@param {type:"number"}
+    padding_mode = 'border'#@param ['border', 'reflection', 'zeros'] {type:'string'}
+    sampling_mode = 'bicubic'#@param ['bicubic', 'bilinear', 'nearest'] {type:'string'}
+    save_depth_maps = False #@param {type:"boolean"}
+
+    # ####**Video Input:**
+    video_init_path ='/content/video_in.mp4'#@param {type:"string"}
+    extract_nth_frame = 1#@param {type:"number"}
+    overwrite_extracted_frames = True #@param {type:"boolean"}
+    use_mask_video = False #@param {type:"boolean"}
+    video_mask_path ='/content/video_in.mp4'#@param {type:"string"}
+
+    # ####**Hybrid Video for 2D/3D Animation Mode:**
+    hybrid_video_generate_inputframes = False #@param {type:"boolean"}
+    hybrid_video_use_first_frame_as_init_image = True #@param {type:"boolean"}
+    hybrid_video_motion = "None" #@param ['None','Optical Flow','Perspective','Affine']
+    hybrid_video_flow_method = "Farneback" #@param ['Farneback','DenseRLOF','SF']
+    hybrid_video_composite = False #@param {type:"boolean"}
+    hybrid_video_comp_mask_type = "None" #@param ['None', 'Depth', 'Video Depth', 'Blend', 'Difference']
+    hybrid_video_comp_mask_inverse = False #@param {type:"boolean"}
+    hybrid_video_comp_mask_equalize = "None" #@param  ['None','Before','After','Both']
+    hybrid_video_comp_mask_auto_contrast = False #@param {type:"boolean"}
+    hybrid_video_comp_save_extra_frames = False #@param {type:"boolean"}
+    hybrid_video_use_video_as_mse_image = False #@param {type:"boolean"}
+
+    # ####**Interpolation:**
+    interpolate_key_frames = True #@param {type:"boolean"}
+    interpolate_x_frames = 0 #@param {type:"number"}
+    
+    # ####**Resume Animation:**
+    resume_from_timestring = False #@param {type:"boolean"}
+    resume_timestring = "20220829210106" #@param {type:"string"}
+
+    return locals()
+    
+
+def DeforumArgs(m2v_patch_name, m2v_output_folder_path):
+    """
+    Deforum Args
+
+    :param m2v_patch_name: Name of the patch
+    :type m2v_patch_name: str
+    :param m2v_output_folder_path: Path to the output folder
+    :type m2v_output_folder_path: str
+    :return: Dictionary of arguments
+    """
+    # **Image Settings**
+    W = 768 #@param #1280 
+    H =  512 #@param #768 512
+    W, H = map(lambda x: x - x % 64, (W, H))  # resize to integer multiple of 64
+    bit_depth_output = 8 #@param [8, 16, 32] {type:"raw"}
+
+    # **Sampling Settings**
+    seed = -1 #@param
+    sampler = 'euler_ancestral' #@param ["klms","dpm2","dpm2_ancestral","heun","euler","euler_ancestral","plms", "ddim", "dpm_fast", "dpm_adaptive", "dpmpp_2s_a", "dpmpp_2m"]
+    steps = 30 #@param #50
+    scale = 7 #@param
+    ddim_eta = 0.0 #@param
+    dynamic_threshold = None
+    static_threshold = None   
+
+    # **Save & Display Settings**
+    save_samples = True #@param {type:"boolean"}
+    save_settings = True #@param {type:"boolean"}
+    display_samples = True #@param {type:"boolean"}
+    save_sample_per_step = False #@param {type:"boolean"}
+    show_sample_per_step = False #@param {type:"boolean"}
+
+    # **Prompt Settings**
+    prompt_weighting = True #@param {type:"boolean"}
+    normalize_prompt_weights = True #@param {type:"boolean"}
+    log_weighted_subprompts = False #@param {type:"boolean"}
+
+    # **Batch Settings**
+    n_batch = 1 #@param
+    batch_name = m2v_patch_name #@param {type:"string"}
+    filename_format = "{timestring}_{index}_{prompt}.png" #@param ["{timestring}_{index}_{seed}.png","{timestring}_{index}_{prompt}.png"]
+    seed_behavior = "iter" #@param ["iter","fixed","random","ladder","alternate"]
+    seed_iter_N = 1 #@param {type:'integer'}
+    make_grid = False #@param {type:"boolean"}
+    grid_rows = 2 #@param 
+    outdir = get_output_folder(m2v_output_folder_path, batch_name)
+
+    # **Init Settings**
+    use_init = False #@param {type:"boolean"}
+    strength = 0.1 #@param {type:"number"}
+    strength_0_no_init = True # Set the strength to 0 automatically when no init image is used
+    init_image = "https://cdn.pixabay.com/photo/2022/07/30/13/10/green-longhorn-beetle-7353749_1280.jpg" #@param {type:"string"}
+    # Whiter areas of the mask are areas that change more
+    use_mask = False #@param {type:"boolean"}
+    use_alpha_as_mask = False # use the alpha channel of the init image as the mask
+    mask_file = "https://www.filterforge.com/wiki/images/archive/b/b7/20080927223728%21Polygonal_gradient_thumb.jpg" #@param {type:"string"}
+    invert_mask = False #@param {type:"boolean"}
+    # Adjust mask image, 1.0 is no adjustment. Should be positive numbers.
+    mask_brightness_adjust = 1.0  #@param {type:"number"}
+    mask_contrast_adjust = 1.0  #@param {type:"number"}
+    # Overlay the masked image at the end of the generation so it does not get degraded by encoding and decoding
+    overlay_mask = True  # {type:"boolean"}
+    # Blur edges of final overlay mask, if used. Minimum = 0 (no blur)
+    mask_overlay_blur = 5 # {type:"number"}
+
+    # **Exposure/Contrast Conditional Settings**
+    mean_scale = 0 #@param {type:"number"}
+    var_scale = 0 #@param {type:"number"}
+    exposure_scale = 0 #@param {type:"number"}
+    exposure_target = 0.5 #@param {type:"number"}
+
+    # **Color Match Conditional Settings**
+    colormatch_scale = 0 #@param {type:"number"}
+    colormatch_image = "https://www.saasdesign.io/wp-content/uploads/2021/02/palette-3-min-980x588.png" #@param {type:"string"}
+    colormatch_n_colors = 4 #@param {type:"number"}
+    ignore_sat_weight = 0 #@param {type:"number"}
+
+    # **CLIP\Aesthetics Conditional Settings**
+    clip_name = 'ViT-L/14' #@param ['ViT-L/14', 'ViT-L/14@336px', 'ViT-B/16', 'ViT-B/32']
+    clip_scale = 0 #@param {type:"number"}
+    aesthetics_scale = 0 #@param {type:"number"}
+    cutn = 1 #@param {type:"number"}
+    cut_pow = 0.0001 #@param {type:"number"}
+
+    # **Other Conditional Settings**
+    init_mse_scale = 0 #@param {type:"number"}
+    init_mse_image = "https://cdn.pixabay.com/photo/2022/07/30/13/10/green-longhorn-beetle-7353749_1280.jpg" #@param {type:"string"}
+
+    blue_scale = 0 #@param {type:"number"}
+    
+    # **Conditional Gradient Settings**
+    gradient_wrt = 'x0_pred' #@param ["x", "x0_pred"]
+    gradient_add_to = 'both' #@param ["cond", "uncond", "both"]
+    decode_method = 'linear' #@param ["autoencoder","linear"]
+    grad_threshold_type = 'dynamic' #@param ["dynamic", "static", "mean", "schedule"]
+    clamp_grad_threshold = 0.2 #@param {type:"number"}
+    clamp_start = 0.2 #@param
+    clamp_stop = 0.01 #@param
+    grad_inject_timing = list(range(1,10)) #@param
+
+    # **Speed vs VRAM Settings**
+    cond_uncond_sync = True #@param {type:"boolean"}
+
+    n_samples = 1 # doesnt do anything
+    precision = 'autocast' 
+    C = 4
+    f = 8
+
+    prompt = ""
+    timestring = ""
+    init_latent = None
+    init_sample = None
+    init_sample_raw = None
+    mask_sample = None
+    init_c = None
+    seed_internal = 0
+
+    return locals()
+    
+
+def main(m2v_prompts_file_path, m2v_features_file_path, m2v_output_folder_path, m2v_patch_name, m2v_fps):
+    """
+    Entry point of the script for deforum-stable-diffusion.
+
+    This function triggers the environment setup, loads the pre-trained model and enventually generates the video.
+
+    :param m2v_prompts_file_path: Path to the prompts file
+    :type m2v_prompts_file_path: str
+    :param m2v_features_file_path: Path to the features file
+    :type m2v_features_file_path: str
+    :param m2v_output_folder_path: Path to the output folder
+    :type m2v_output_folder_path: str
+    :param m2v_patch_name: subfolder name for the output repository
+    :type m2v_patch_name: str
+    :param m2v_fps: FPS for the video to generate
+    :type m2v_fps: int
+"""
     animation_prompts = dict()
 
-    with open(m2v_args.prompts_file_path, 'r') as file:
+    with open(m2v_prompts_file_path, 'r') as file:
         input_animation_prompts_json = json.load(file)
         for animation_prompt in input_animation_prompts_json:
-            animation_prompts[int(animation_prompt['start']*int(m2v_args.fps))] = animation_prompt['prompt']
-        input_max_frame = input_animation_prompts_json[-1]['end']*int(m2v_args.fps)
+            animation_prompts[int(animation_prompt['start']*int(m2v_fps))] = animation_prompt['prompt']
+        input_max_frame = input_animation_prompts_json[-1]['end']*int(m2v_fps)
         input_max_frame = math.ceil(input_max_frame/7)*7+1
     
     print(input_max_frame)
@@ -73,108 +385,30 @@ if __name__ == "__main__":
     print(animation_prompts)
 
     # Open the file and read the JSON data
-    with open(m2v_args.features_file_path, 'r') as f:
+    with open(m2v_features_file_path, 'r') as f:
         data = json.load(f)
 
     # Build the strength_schedule string
     input_strength_schedule = ', '.join([f'{item["frame"]}:({item["strength_schedule"]})' for item in data])
-    print('strength_schedule:', input_strength_schedule)
 
-    # Build the noise_schedule string
-    input_noise_schedule = ', '.join([f'{item["frame"]}:({item["noise_schedule"]})' for item in data])
-    print('noise_schedule:', input_noise_schedule)
-    # -*- coding: utf-8 -*-
+    # Build the rotation_3d string
+    input_rotation3d_y = ', '.join([f'{item["frame"]}:({item["rotation_3d_y"]})' for item in data])
 
 
-    #@markdown **NVIDIA GPU**
+    # **NVIDIA GPU**
     import subprocess, os, sys
     sub_p_res = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,memory.free', '--format=csv,noheader'], stdout=subprocess.PIPE).stdout.decode('utf-8')
     print(f"{sub_p_res[:-1]}")
 
     """# Setup"""
 
-    #@markdown **Environment Setup**
-    import subprocess, time, gc, os, sys
+    # **Environment Setup**
 
-    def setup_environment():
-        start_time = time.time()
-        print_subprocess = False
-        use_xformers_for_colab = True
-        reconfigure_environment = True #@param {type:"boolean"}
 
-        try:
-            ipy = get_ipython()
-        except:
-            ipy = 'could not get_ipython'
-        if reconfigure_environment:
-            print("..setting up environment")
-
-            # weird hack
-            #import torch
-            
-            all_process = [
-                ['pip', 'install', 'omegaconf', 'einops==0.4.1', 'pytorch-lightning==1.7.7', 'torchmetrics', 'transformers', 'safetensors', 'kornia'],
-                ['git', 'clone', 'https://github.com/deforum-art/deforum-stable-diffusion'],
-                ['pip', 'install', 'accelerate', 'ftfy', 'jsonmerge', 'matplotlib', 'resize-right', 'timm', 'torchdiffeq','scikit-learn','torchsde','open-clip-torch','numpngw'],
-            ]
-            for process in all_process:
-                running = subprocess.run(process,stdout=subprocess.PIPE).stdout.decode('utf-8')
-                if print_subprocess:
-                    print(running)
-            with open('deforum-stable-diffusion/src/k_diffusion/__init__.py', 'w') as f:
-                f.write('')
-            sys.path.extend([
-                'deforum-stable-diffusion/',
-                'deforum-stable-diffusion/src',
-            ])
-            if use_xformers_for_colab:
-
-                print("..installing triton and xformers")
-
-                all_process = [['pip', 'install', 'triton==2.0.0.dev20221202', 'xformers==0.0.16']]
-                for process in all_process:
-                    running = subprocess.run(process,stdout=subprocess.PIPE).stdout.decode('utf-8')
-                    if print_subprocess:
-                        print(running)
-        else:
-            sys.path.extend([
-                'deforum-stable-diffusion/',
-                'deforum-stable-diffusion/src',
-            ])
-        end_time = time.time()
-        print(f"..environment set up in {end_time-start_time:.0f} seconds")
-        return
 
     setup_environment()
 
-    import torch
-    import random
-    import clip
-    from IPython import display
-    from types import SimpleNamespace
-    from helpers.save_images import get_output_folder
-    from helpers.settings import load_args
-    from helpers.render import render_animation, render_input_video, render_image_batch, render_interpolation
-    from helpers.model_load import make_linear_decode, load_model, get_model_output_paths
-    from helpers.aesthetics import load_aesthetics_model
-
-    #@markdown **Path Setup**
-
-    def Root():
-        models_path = "./models" #@param {type:"string"}
-        configs_path = "./deforum-stable-diffusion/configs/" #@param {type:"string"}
-        output_path = "./outputs" #@param {type:"string"}
-        mount_google_drive = False #@param {type:"boolean"}
-        models_path_gdrive = "/content/drive/MyDrive/AI/models" #@param {type:"string"}
-        output_path_gdrive = "/content/drive/MyDrive/AI/StableDiffusion" #@param {type:"string"}
-
-        #@markdown **Model Setup**
-        map_location = "cuda" #@param ["cpu", "cuda"]
-        model_config = "v2-inference-v.yaml" #@param ["custom","v2-inference.yaml","v2-inference-v.yaml","v1-inference.yaml"]
-        model_checkpoint =  "v2-1_768-ema-pruned.ckpt" #@param ["custom","v2-1_768-ema-pruned.ckpt","v2-1_512-ema-pruned.ckpt","768-v-ema.ckpt","512-base-ema.ckpt","Protogen_V2.2.ckpt","v1-5-pruned.ckpt","v1-5-pruned-emaonly.ckpt","sd-v1-4-full-ema.ckpt","sd-v1-4.ckpt","sd-v1-3-full-ema.ckpt","sd-v1-3.ckpt","sd-v1-2-full-ema.ckpt","sd-v1-2.ckpt","sd-v1-1-full-ema.ckpt","sd-v1-1.ckpt", "robo-diffusion-v1.ckpt","wd-v1-3-float16.ckpt"]
-        custom_config_path = "" #@param {type:"string"}
-        custom_checkpoint_path = "" #@param {type:"string"}
-        return locals()
+    # **Path Setup**
 
     root = Root()
     root = SimpleNamespace(**root)
@@ -184,212 +418,15 @@ if __name__ == "__main__":
 
     """# Settings"""
 
-    def DeforumAnimArgs():
 
-        #@markdown ####**Animation:**
-        animation_mode = '3D' #@param ['None', '2D', '3D', 'Video Input', 'Interpolation'] {type:'string'}
-        max_frames = input_max_frame #@param {type:"number"}
-        border = 'replicate' #@param ['wrap', 'replicate'] {type:'string'}
-
-        #@markdown ####**Motion Parameters:**
-        angle = "0:(0)"#@param {type:"string"}
-        zoom = "0:(1)"#@param {type:"string"}
-        translation_x = "0:(0)"#@param {type:"string"}
-        translation_y = "0:(0)"#@param {type:"string"}
-        translation_z = "0:(0)"#@param {type:"string"}
-        rotation_3d_x = "0:(0)"#@param {type:"string"}
-        rotation_3d_y = "0:(0)"#@param {type:"string"}
-        rotation_3d_z = "0:(0)"#@param {type:"string"}
-        flip_2d_perspective = False #@param {type:"boolean"}
-        perspective_flip_theta = "0:(0)"#@param {type:"string"}
-        perspective_flip_phi = "0:(t%15)"#@param {type:"string"}
-        perspective_flip_gamma = "0:(0)"#@param {type:"string"}
-        perspective_flip_fv = "0:(53)"#@param {type:"string"}
-        strength_schedule = input_strength_schedule
-        noise_schedule = input_noise_schedule
-        if not "input_strength_schedule" in globals():
-            strength_schedule = "0: (0.8)"#@param {type:"string"}
-        #if not "input_noise_schedule" in globals():
-        noise_schedule = "0: (0.065)"#@param {type:"string"}
-        
-        print("Applying strength: "+strength_schedule)
-        print("Applying noise: "+noise_schedule)
-        contrast_schedule = "0: (1.0)"#@param {type:"string"}
-        hybrid_video_comp_alpha_schedule = "0:(1)" #@param {type:"string"}
-        hybrid_video_comp_mask_blend_alpha_schedule = "0:(0.5)" #@param {type:"string"}
-        hybrid_video_comp_mask_contrast_schedule = "0:(1)" #@param {type:"string"}
-        hybrid_video_comp_mask_auto_contrast_cutoff_high_schedule =  "0:(100)" #@param {type:"string"}
-        hybrid_video_comp_mask_auto_contrast_cutoff_low_schedule =  "0:(0)" #@param {type:"string"}
-
-        #@markdown ####**Unsharp mask (anti-blur) Parameters:**
-        kernel_schedule = "0: (5)"#@param {type:"string"}
-        sigma_schedule = "0: (1.0)"#@param {type:"string"}
-        amount_schedule = "0: (0.2)"#@param {type:"string"}
-        threshold_schedule = "0: (0.0)"#@param {type:"string"}
-
-        #@markdown ####**Coherence:**
-        color_coherence = 'Match Frame 0 LAB' #@param ['None', 'Match Frame 0 HSV', 'Match Frame 0 LAB', 'Match Frame 0 RGB', 'Video Input'] {type:'string'}
-        color_coherence_video_every_N_frames = 1 #@param {type:"integer"}
-        diffusion_cadence = '1' #@param ['1','2','3','4','5','6','7','8'] {type:'string'}
-
-        #@markdown ####**3D Depth Warping:**
-        use_depth_warping = True #@param {type:"boolean"}
-        midas_weight = 0.3#@param {type:"number"}
-        near_plane = 200
-        far_plane = 10000
-        fov = 40#@param {type:"number"}
-        padding_mode = 'border'#@param ['border', 'reflection', 'zeros'] {type:'string'}
-        sampling_mode = 'bicubic'#@param ['bicubic', 'bilinear', 'nearest'] {type:'string'}
-        save_depth_maps = False #@param {type:"boolean"}
-
-        #@markdown ####**Video Input:**
-        video_init_path ='/content/video_in.mp4'#@param {type:"string"}
-        extract_nth_frame = 1#@param {type:"number"}
-        overwrite_extracted_frames = True #@param {type:"boolean"}
-        use_mask_video = False #@param {type:"boolean"}
-        video_mask_path ='/content/video_in.mp4'#@param {type:"string"}
-
-        #@markdown ####**Hybrid Video for 2D/3D Animation Mode:**
-        hybrid_video_generate_inputframes = False #@param {type:"boolean"}
-        hybrid_video_use_first_frame_as_init_image = True #@param {type:"boolean"}
-        hybrid_video_motion = "None" #@param ['None','Optical Flow','Perspective','Affine']
-        hybrid_video_flow_method = "Farneback" #@param ['Farneback','DenseRLOF','SF']
-        hybrid_video_composite = False #@param {type:"boolean"}
-        hybrid_video_comp_mask_type = "None" #@param ['None', 'Depth', 'Video Depth', 'Blend', 'Difference']
-        hybrid_video_comp_mask_inverse = False #@param {type:"boolean"}
-        hybrid_video_comp_mask_equalize = "None" #@param  ['None','Before','After','Both']
-        hybrid_video_comp_mask_auto_contrast = False #@param {type:"boolean"}
-        hybrid_video_comp_save_extra_frames = False #@param {type:"boolean"}
-        hybrid_video_use_video_as_mse_image = False #@param {type:"boolean"}
-
-        #@markdown ####**Interpolation:**
-        interpolate_key_frames = True #@param {type:"boolean"}
-        interpolate_x_frames = 0 #@param {type:"number"}
-        
-        #@markdown ####**Resume Animation:**
-        resume_from_timestring = False #@param {type:"boolean"}
-        resume_timestring = "20220829210106" #@param {type:"string"}
-
-        return locals()
-
-
-    #@markdown **Load Settings**
+    # **Load Settings**
     override_settings_with_file = False #@param {type:"boolean"}
     settings_file = "custom" #@param ["custom", "512x512_aesthetic_0.json","512x512_aesthetic_1.json","512x512_colormatch_0.json","512x512_colormatch_1.json","512x512_colormatch_2.json","512x512_colormatch_3.json"]
     custom_settings_file = "/content/drive/MyDrive/Settings.txt"#@param {type:"string"}
 
-    def DeforumArgs():
-        #@markdown **Image Settings**
-        W = 768 #@param #1280 
-        H =  512 #@param #768 512
-        W, H = map(lambda x: x - x % 64, (W, H))  # resize to integer multiple of 64
-        bit_depth_output = 8 #@param [8, 16, 32] {type:"raw"}
 
-        #@markdown **Sampling Settings**
-        seed = -1 #@param
-        sampler = 'euler_ancestral' #@param ["klms","dpm2","dpm2_ancestral","heun","euler","euler_ancestral","plms", "ddim", "dpm_fast", "dpm_adaptive", "dpmpp_2s_a", "dpmpp_2m"]
-        steps = 30 #@param #50
-        scale = 7 #@param
-        ddim_eta = 0.0 #@param
-        dynamic_threshold = None
-        static_threshold = None   
-
-        #@markdown **Save & Display Settings**
-        save_samples = True #@param {type:"boolean"}
-        save_settings = True #@param {type:"boolean"}
-        display_samples = True #@param {type:"boolean"}
-        save_sample_per_step = False #@param {type:"boolean"}
-        show_sample_per_step = False #@param {type:"boolean"}
-
-        #@markdown **Prompt Settings**
-        prompt_weighting = True #@param {type:"boolean"}
-        normalize_prompt_weights = True #@param {type:"boolean"}
-        log_weighted_subprompts = False #@param {type:"boolean"}
-
-        #@markdown **Batch Settings**
-        n_batch = 1 #@param
-        batch_name = m2v_args.patch_name #@param {type:"string"}
-        filename_format = "{timestring}_{index}_{prompt}.png" #@param ["{timestring}_{index}_{seed}.png","{timestring}_{index}_{prompt}.png"]
-        seed_behavior = "iter" #@param ["iter","fixed","random","ladder","alternate"]
-        seed_iter_N = 1 #@param {type:'integer'}
-        make_grid = False #@param {type:"boolean"}
-        grid_rows = 2 #@param 
-        outdir = get_output_folder(m2v_args.output_folder_path, batch_name)
-
-        #@markdown **Init Settings**
-        use_init = False #@param {type:"boolean"}
-        strength = 0.1 #@param {type:"number"}
-        strength_0_no_init = True # Set the strength to 0 automatically when no init image is used
-        init_image = "https://cdn.pixabay.com/photo/2022/07/30/13/10/green-longhorn-beetle-7353749_1280.jpg" #@param {type:"string"}
-        # Whiter areas of the mask are areas that change more
-        use_mask = False #@param {type:"boolean"}
-        use_alpha_as_mask = False # use the alpha channel of the init image as the mask
-        mask_file = "https://www.filterforge.com/wiki/images/archive/b/b7/20080927223728%21Polygonal_gradient_thumb.jpg" #@param {type:"string"}
-        invert_mask = False #@param {type:"boolean"}
-        # Adjust mask image, 1.0 is no adjustment. Should be positive numbers.
-        mask_brightness_adjust = 1.0  #@param {type:"number"}
-        mask_contrast_adjust = 1.0  #@param {type:"number"}
-        # Overlay the masked image at the end of the generation so it does not get degraded by encoding and decoding
-        overlay_mask = True  # {type:"boolean"}
-        # Blur edges of final overlay mask, if used. Minimum = 0 (no blur)
-        mask_overlay_blur = 5 # {type:"number"}
-
-        #@markdown **Exposure/Contrast Conditional Settings**
-        mean_scale = 0 #@param {type:"number"}
-        var_scale = 0 #@param {type:"number"}
-        exposure_scale = 0 #@param {type:"number"}
-        exposure_target = 0.5 #@param {type:"number"}
-
-        #@markdown **Color Match Conditional Settings**
-        colormatch_scale = 0 #@param {type:"number"}
-        colormatch_image = "https://www.saasdesign.io/wp-content/uploads/2021/02/palette-3-min-980x588.png" #@param {type:"string"}
-        colormatch_n_colors = 4 #@param {type:"number"}
-        ignore_sat_weight = 0 #@param {type:"number"}
-
-        #@markdown **CLIP\Aesthetics Conditional Settings**
-        clip_name = 'ViT-L/14' #@param ['ViT-L/14', 'ViT-L/14@336px', 'ViT-B/16', 'ViT-B/32']
-        clip_scale = 0 #@param {type:"number"}
-        aesthetics_scale = 0 #@param {type:"number"}
-        cutn = 1 #@param {type:"number"}
-        cut_pow = 0.0001 #@param {type:"number"}
-
-        #@markdown **Other Conditional Settings**
-        init_mse_scale = 0 #@param {type:"number"}
-        init_mse_image = "https://cdn.pixabay.com/photo/2022/07/30/13/10/green-longhorn-beetle-7353749_1280.jpg" #@param {type:"string"}
-
-        blue_scale = 0 #@param {type:"number"}
-        
-        #@markdown **Conditional Gradient Settings**
-        gradient_wrt = 'x0_pred' #@param ["x", "x0_pred"]
-        gradient_add_to = 'both' #@param ["cond", "uncond", "both"]
-        decode_method = 'linear' #@param ["autoencoder","linear"]
-        grad_threshold_type = 'dynamic' #@param ["dynamic", "static", "mean", "schedule"]
-        clamp_grad_threshold = 0.2 #@param {type:"number"}
-        clamp_start = 0.2 #@param
-        clamp_stop = 0.01 #@param
-        grad_inject_timing = list(range(1,10)) #@param
-
-        #@markdown **Speed vs VRAM Settings**
-        cond_uncond_sync = True #@param {type:"boolean"}
-
-        n_samples = 1 # doesnt do anything
-        precision = 'autocast' 
-        C = 4
-        f = 8
-
-        prompt = ""
-        timestring = ""
-        init_latent = None
-        init_sample = None
-        init_sample_raw = None
-        mask_sample = None
-        init_c = None
-        seed_internal = 0
-
-        return locals()
-
-    args_dict = DeforumArgs()
-    anim_args_dict = DeforumAnimArgs()
+    args_dict = DeforumArgs(m2v_patch_name, m2v_output_folder_path)
+    anim_args_dict = DeforumAnimArgs(input_max_frame, input_rotation3d_y, input_strength_schedule)
 
     if override_settings_with_file:
         load_args(args_dict, anim_args_dict, settings_file, custom_settings_file, verbose=False)
@@ -440,8 +477,8 @@ if __name__ == "__main__":
     """# Create Video From Frames"""
 
     skip_video_for_run_all = False #@param {type: 'boolean'}
-    fps = m2v_args.fps #@param {type:"number"}
-    #@markdown **Manual Settings**
+    fps = m2v_fps #@param {type:"number"}
+    # Manual Settings
     use_manual_settings = False #@param {type:"boolean"}
     image_path = "/content/drive/MyDrive/AI/StableDiffusion/2023-01/StableFun/20230101212135_%05d.png" #@param {type:"string"}
     mp4_path = "/content/drive/MyDrive/AI/StableDiffusion/2023-01/StableFun/20230101212135.mp4" #@param {type:"string"}
@@ -475,8 +512,8 @@ if __name__ == "__main__":
                 max_frames = str(anim_args.max_frames)
 
         # make video
-        # image_path = m2v_args.output_folder_path+m2v_args.patch_name+'_%05d.png'
-        mp4_path = os.path.join(m2v_args.output_folder_path, m2v_args.patch_name+'.mp4')
+        # image_path = m2v_output_folder_path+m2v_patch_name+'_%05d.png'
+        mp4_path = os.path.join(m2v_output_folder_path, m2v_patch_name+'.mp4')
         cmd = [
             '/home2020/home/math/lwerey/V7_DSD/ffmpeg-5.1.1-amd64-static/ffmpeg',
             '-y',
@@ -522,3 +559,19 @@ if __name__ == "__main__":
     else:
         from google.colab import runtime
         runtime.unassign()
+
+    
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Print input and output file paths")
+    parser.add_argument("prompts_file_path", nargs='?', default="/home2020/home/math/lwerey/TMP/prompts.json", help="Path to the prompts file")
+    parser.add_argument("features_file_path", nargs='?', help="Path to the features file")
+    parser.add_argument("output_folder_path", nargs='?', default="/home2020/home/math/lwerey/TMP/stable_diffusion", help="Path to the features file")
+    parser.add_argument("patch_name", nargs='?', default="M2V", help="subfolder name for the output repository")
+    parser.add_argument("fps", nargs='?', default="10", help="FPS for the video to generate")
+
+
+    m2v_args = parser.parse_args()
+    main(m2v_args.prompts_file_path, m2v_args.features_file_path, m2v_args.output_folder_path, m2v_args.patch_name, m2v_args.fps)
+
+    
