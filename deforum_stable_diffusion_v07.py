@@ -193,10 +193,10 @@ if __name__ == "__main__":
 
         #@markdown ####**Motion Parameters:**
         angle = "0:(0)"#@param {type:"string"}
-        zoom = "0:(1.02)"#@param {type:"string"}
+        zoom = "0:(1)"#@param {type:"string"}
         translation_x = "0:(0)"#@param {type:"string"}
         translation_y = "0:(0)"#@param {type:"string"}
-        translation_z = "0:(10)"#@param {type:"string"}
+        translation_z = "0:(0)"#@param {type:"string"}
         rotation_3d_x = "0:(0)"#@param {type:"string"}
         rotation_3d_y = "0:(0)"#@param {type:"string"}
         rotation_3d_z = "0:(0)"#@param {type:"string"}
@@ -280,15 +280,15 @@ if __name__ == "__main__":
 
     def DeforumArgs():
         #@markdown **Image Settings**
-        W = 1280 #@param
-        H = 768 #@param
+        W = 768 #@param #1280 
+        H =  512 #@param #768 512
         W, H = map(lambda x: x - x % 64, (W, H))  # resize to integer multiple of 64
         bit_depth_output = 8 #@param [8, 16, 32] {type:"raw"}
 
         #@markdown **Sampling Settings**
         seed = -1 #@param
         sampler = 'euler_ancestral' #@param ["klms","dpm2","dpm2_ancestral","heun","euler","euler_ancestral","plms", "ddim", "dpm_fast", "dpm_adaptive", "dpmpp_2s_a", "dpmpp_2m"]
-        steps = 50 #@param
+        steps = 30 #@param #50
         scale = 7 #@param
         ddim_eta = 0.0 #@param
         dynamic_threshold = None
